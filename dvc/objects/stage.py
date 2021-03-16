@@ -3,6 +3,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
+import doltcli as dolt
 from dvc.exceptions import DvcIgnoreInCollectedDirError
 from dvc.hash_info import HashInfo
 from dvc.ignore import DvcIgnore
@@ -28,6 +29,7 @@ def _upload_file(path_info, fs, odb):
 
 def _get_file_hash(path_info, fs, name):
     info = fs.info(path_info)
+
     if name in info:
         assert not info[name].endswith(".dir")
         return HashInfo(name, info[name], size=info["size"])
@@ -38,11 +40,10 @@ def _get_file_hash(path_info, fs, name):
 
     if name == "md5":
         return HashInfo(
-            name, file_md5(path_info, fs), size=fs.getsize(path_info)
+            name, file_md5(path_info, fs), size=fs.getsize(path_info),
         )
 
     raise NotImplementedError
-
 
 def get_file_hash(path_info, fs, name, state=None):
     if state:
@@ -60,6 +61,61 @@ def get_file_hash(path_info, fs, name, state=None):
 
     return hash_info
 
+def _get_dolt_hash(path_info, fs, name, dolt_md5):
+    """Based off of _get_file_hash()"""
+    info = fs.info(path_info)
+
+    if name in info:
+        assert not info[name].endswith(".dir")
+        return HashInfo(name, info[name], size=info["size"])
+
+    func = getattr(fs, name, None)
+    if func:
+        return func(path_info)
+
+    if name == "md5":
+        return HashInfo(
+            name, dolt_md5, size=fs.getsize(path_info),
+        )
+
+    raise NotImplementedError
+
+def get_dolt_hash(path_info, fs, name, state=None):
+    """Basing off of get_file_hash() since the original Dolt integration seems
+    to emulate adding a file."""
+    if state:  # If-block from get_file_hash(), not sure about what it is for
+        hash_info = state.get(  # pylint: disable=assignment-from-none
+            path_info, fs
+        )
+        if hash_info:
+            return hash_info
+
+    # Next 5 lines taken from original dolt/integration
+    db = dolt.Dolt(path_info)
+    sql = (f"select @@{db.repo_name}_working as working")
+    res = db.sql(sql, result_format="csv")
+    working = res[0]["working"]
+    value = f"{db.head}-{working}.dolt"
+
+    hash_info = _get_dolt_hash(path_info, fs, name, value)
+
+    if state:
+        assert ".dir" not in hash_info.value
+        state.save(path_info, fs, hash_info)
+
+    return hash_info
+
+def _get_dolt_obj(path_info, fs, name, odb=None, state=None, upload=False):
+    """Based off of _get_file_obj() since the original Dolt integration seems
+    to emulate adding a file."""
+    if upload:
+        assert odb and name == "md5"
+        return _upload_file(path_info, fs, odb)
+
+    obj = HashFile(
+        path_info, fs, get_dolt_hash(path_info, fs, name, state=state)
+    )
+    return path_info, obj
 
 def _get_file_obj(path_info, fs, name, odb=None, state=None, upload=False):
     if upload:
@@ -193,6 +249,9 @@ def stage(odb, path_info, fs, name, upload=False, **kwargs):
     ):
         hash_info = None
 
+    if fs.isdolt(path_info):
+        hash_info = None
+
     if hash_info:
         from . import load
         from .tree import Tree
@@ -210,7 +269,9 @@ def stage(odb, path_info, fs, name, upload=False, **kwargs):
         obj.hash_info.size = hash_info.size
         return obj
 
-    if fs.isdir(path_info):
+    if fs.isdolt(path_info):
+        obj = _get_dolt_hash(path_info, fs, name, odb, state, **kwargs)
+    elif fs.isdir(path_info):
         obj = _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs)
     else:
         _, obj = _get_file_obj(path_info, fs, name, odb, state, upload)

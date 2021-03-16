@@ -9,11 +9,13 @@ HASH_DIR_SUFFIX = ".dir"
 class HashInfo:
     PARAM_SIZE = "size"
     PARAM_NFILES = "nfiles"
+    PARAM_DOLT_HEAD = "dolt_head"
 
     name: Optional[str]
     value: Optional[str]
     size: Optional[int] = field(default=None, compare=False)
     nfiles: Optional[int] = field(default=None, compare=False)
+    dolt_head: Optional[int] = field(default=None, compare=False)
 
     def __bool__(self):
         return bool(self.value)
@@ -29,12 +31,13 @@ class HashInfo:
         _d = d.copy() if d else {}
         size = _d.pop(cls.PARAM_SIZE, None)
         nfiles = _d.pop(cls.PARAM_NFILES, None)
+        dolt_head = _d.pop(cls.PARAM_DOLT_HEAD, None)
 
         if not _d:
             return cls(None, None)
 
         ((name, value),) = _d.items()
-        return cls(name, value, size=size, nfiles=nfiles)
+        return cls(name, value, size=size, nfiles=nfiles, dolt_head=dolt_head)
 
     def to_dict(self):
         ret = OrderedDict()
@@ -46,6 +49,7 @@ class HashInfo:
             ret[self.PARAM_SIZE] = self.size
         if self.nfiles is not None:
             ret[self.PARAM_NFILES] = self.nfiles
+        ret["dolt_head"] = getattr(self, "dolt_head", None)
         return ret
 
     @property

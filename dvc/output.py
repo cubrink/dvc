@@ -5,6 +5,8 @@ from copy import copy
 from typing import TYPE_CHECKING, Dict, Optional, Set, Type
 from urllib.parse import urlparse
 
+import doltcli as dolt
+
 from funcy import collecting, project
 from voluptuous import And, Any, Coerce, Length, Lower, Required, SetTo
 
@@ -320,6 +322,10 @@ class Output:
         if self.use_cache and self.odb is None:
             raise RemoteCacheRequiredError(self.path_info)
 
+        if self.fs.isdolt(self) or (self.hash_info and ".dolt" in self.hash_info.value):
+            self.use_cache = False
+            self.is_dolt = True
+
         self.obj = None
         self.isexec = False if self.IS_DEPENDENCY else isexec
 
@@ -521,6 +527,11 @@ class Output:
 
         if self.is_empty:
             logger.warning(f"'{self}' is empty.")
+
+        if self.fs.isdolt(self.path_info):
+            db = dolt.Dolt(self.path_info)
+            if not db.status().is_clean:
+                raise ValueError("Dolt status is not clean; commit a reproducible state before adding.")
 
         self.ignore()
 

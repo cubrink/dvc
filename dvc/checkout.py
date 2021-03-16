@@ -1,6 +1,9 @@
 import logging
+import os
 
 from shortuuid import uuid
+
+import doltcli as dolt
 
 from dvc import prompt
 from dvc.exceptions import (
@@ -245,6 +248,14 @@ def _checkout_dir(
 
     if state:
         state.save(path_info, fs, obj.hash_info)
+
+    if os.path.exists(os.path.join(path_info, ".dolt")):
+        if hasattr(obj.hash_info, "dolt_head"):
+            db = dolt.Dolt(path_info)
+            db.sql(query=f"set `@@{db.repo_name}_head` = '{obj.hash_info.dolt_head}'")
+            print("found dolt hash", obj.hash_info.dolt_head)
+        else:
+            print("failed to find hash", obj.hash_info)
 
     # relink is not modified, assume it as nochange
     return modified and not relink
