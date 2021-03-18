@@ -5,10 +5,10 @@ from copy import copy
 from typing import TYPE_CHECKING, Dict, Optional, Set, Type
 from urllib.parse import urlparse
 
-import doltcli as dolt
-
 from funcy import collecting, project
 from voluptuous import And, Any, Coerce, Length, Lower, Required, SetTo
+
+import doltcli as dolt
 
 from dvc import objects, prompt
 from dvc.checkout import checkout
@@ -446,6 +446,9 @@ class Output:
         return self.fs.exists(self.path_info)
 
     def changed_checksum(self):
+        if hasattr(self.hash_info, "dolt_head"):
+            db = dolt.Dolt(self.path_info)
+            return db.head != self.hash_info.dolt_head
         return self.hash_info != self.get_hash()
 
     def changed_cache(self, filter_info=None):
@@ -697,7 +700,7 @@ class Output:
         checkpoint_reset=False,
         **kwargs,
     ):
-        if not self.use_cache:
+        if not self.use_cache and not self.is_dolt:
             if progress_callback:
                 progress_callback(
                     str(self.path_info), self.get_files_number(filter_info)
