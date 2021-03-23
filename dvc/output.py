@@ -440,7 +440,7 @@ class Output:
         return self.fs.exists(self.path_info)
 
     def changed_checksum(self):
-        if hasattr(self.hash_info, "dolt_head"):
+        if getattr(self.hash_info, "dolt_head", None) is not None:
             db = dolt.Dolt(self.path_info)
             return db.head != self.hash_info.dolt_head
         return self.hash_info != self.get_hash()
