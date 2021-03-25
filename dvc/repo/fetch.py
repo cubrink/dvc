@@ -125,7 +125,7 @@ def fetch(
                 downloaded += 1
             else:
                 db = dolt.Dolt(t)
-                db.pull(remote=remote, refspec="master")
+                db.pull(remote=remote)
 
     return downloaded
 
