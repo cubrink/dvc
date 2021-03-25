@@ -194,6 +194,21 @@ def _build_tree(path_info, fs, name, odb, state, upload, **kwargs):
 
     return tree
 
+def get_dolt_hash(path_info, fs, name, odb, state, **kwargs):
+    # hash_info = get_dir_hash(path_info, fs, name, odb, state, **kwargs)
+    # hash_info = Tree.save_dir_info(fs.repo.odb.local, dir_info)
+
+    db = dolt.Dolt(path_info)
+    value = f"{db.head}.dolt"
+
+    hash_info = HashInfo(name, value)
+    dir_info = _collect_dir(path_info, fs, name, state, **kwargs)
+
+    hash_info.size = dir_info.size
+    hash_info.dir_info = dir_info
+    hash_info.dolt_head = db.head
+
+    return hash_info
 
 def _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs):
     from .tree import Tree
