@@ -29,7 +29,6 @@ def _upload_file(path_info, fs, odb):
 
 def _get_file_hash(path_info, fs, name):
     info = fs.info(path_info)
-
     if name in info:
         assert not info[name].endswith(".dir")
         return HashInfo(name, info[name], size=info["size"])
@@ -40,7 +39,7 @@ def _get_file_hash(path_info, fs, name):
 
     if name == "md5":
         return HashInfo(
-            name, file_md5(path_info, fs), size=fs.getsize(path_info),
+            name, file_md5(path_info, fs), size=fs.getsize(path_info)
         )
 
     raise NotImplementedError
