@@ -102,7 +102,6 @@ def fetch(
     if failed:
         raise DownloadError(failed)
 
-    remote_url = None
     if targets is not None:
         for t in targets:
             outs = self.find_outs_by_path(t, strict=False)
@@ -112,20 +111,31 @@ def fetch(
             if not out:
                 continue
             if out.hash_info.value is not None and ".dolt" in out.hash_info.value:
-                if not remote_url:
-                    remotes = self.config.get("remote", None)
-                    if not remotes:
-                        break
-                    remote_conf = remotes.get(remote, None)
-                    if not remote_conf:
-                        break
-                    remote_url = "file://" + remote_conf.get("url")
+                remotes = self.config.get("remote", None)
+                if not remotes:
+                    break
+                remote_conf = remotes.get(remote, None)
+                if not remote_conf:
+                    break
+                remote_url = "file://" + remote_conf.get("url")
+
                 if not os.path.exists(t):
                     dolt.Dolt.clone(remote_url=remote_url, new_dir=t)
                     downloaded += 1
                 else:
                     db = dolt.Dolt(t)
-                    db.pull(remote=remote)
+
+                    try:
+                        db.pull(remote=remote)
+                    except dolt.DoltException as e:
+                        print('\n', '#' * 80, f"\nError on dolt pull of remote {remote}")
+                        if input(f"Do you want to add the remote {remote} at {remote_url}? [y|n] ").lower() == 'y':
+                            print("\tAdding the remote and attempting to pull again...")
+                            db.remote(name=remote, url=remote_url, add=True)
+                            db.pull(remote=remote)
+                            print("\tSuccess!", '\n', '#' * 80)
+                        else:
+                            raise e
 
     return downloaded
 

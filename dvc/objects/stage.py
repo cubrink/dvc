@@ -155,9 +155,10 @@ def get_dolt_hash(path_info, fs, name, odb, state, upload, **kwargs):
     dir_info = _build_tree(path_info, fs, name, odb, state, upload, **kwargs)
 
     hash_info.size = dir_info.size
-    hash_info.dir_info = dir_info
 
-    return hash_info
+    hashFile = HashFile(path_info, fs, hash_info, name)
+
+    return hashFile
 
 
 def _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs):
