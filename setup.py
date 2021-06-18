@@ -90,7 +90,7 @@ install_requires = [
     "typing_extensions>=3.7.4",
     "fsspec>=2021.6.1",
     "diskcache>=5.2.1",
-    "doltcli>=0.1.4",
+    "doltcli @ git+https://github.com/TannerAMay/doltcli.git@max/windows-tmpfile",
 ]
 
 
