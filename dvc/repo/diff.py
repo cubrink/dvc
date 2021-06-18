@@ -1,10 +1,13 @@
 import logging
 import os
+from collections import defaultdict
+from typing import Dict, List
 
 from dvc.exceptions import PathMissingError
 from dvc.objects.stage import get_file_hash
 from dvc.objects.stage import stage as ostage
 from dvc.repo import locked
+from dvc.repo.experiments.utils import fix_exp_head
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,8 @@ def diff(self, a_rev="HEAD", b_rev=None, targets=None):
 
     repo_fs = RepoFileSystem(self)
 
-    b_rev = b_rev if b_rev else "workspace"
+    a_rev = fix_exp_head(self.scm, a_rev)
+    b_rev = fix_exp_head(self.scm, b_rev) if b_rev else "workspace"
     results = {}
     missing_targets = {}
     for rev in self.brancher(revs=[a_rev, b_rev]):
@@ -130,7 +134,7 @@ def _output_paths(repo, repo_fs, targets):
     def _to_checksum(output):
         if on_working_fs:
             return ostage(
-                repo.odb.local, output.path_info, repo.odb.local.fs,
+                repo.odb.local, output.path_info, repo.odb.local.fs, "md5"
             ).hash_info.value
         return output.hash_info.value
 
@@ -159,6 +163,7 @@ def _dir_output_paths(repo_fs, output, targets=None):
             if targets is None or any(
                 fname.isin_or_eq(target) for target in targets
             ):
+                # pylint: disable=no-member
                 yield str(fname), get_file_hash(fname, repo_fs, "md5").value
     except NoRemoteError:
         logger.warning("dir cache entry for '%s' is missing", output)
@@ -190,29 +195,23 @@ def _targets_to_path_infos(repo_fs, targets):
 
 
 def _calculate_renamed(new, old, added, deleted):
-    old_inverted = {}
+    old_inverted: Dict[str, List[str]] = defaultdict(list)
     # It is needed to be dict of lists to cover cases
     # when repo has paths with same hash
     for path, path_hash in old.items():
-        bucket = old_inverted.get(path_hash, None)
-        if bucket is None:
-            old_inverted[path_hash] = [path]
-        else:
-            bucket.append(path)
+        old_inverted[path_hash].append(path)
 
     renamed = []
     for path in added:
         path_hash = new[path]
-        old_paths = old_inverted.get(path_hash, None)
-        if not old_paths:
+        old_paths = old_inverted[path_hash]
+        try:
+            iterator = enumerate(old_paths)
+            index = next(idx for idx, path in iterator if path in deleted)
+        except StopIteration:
             continue
-        old_path = None
-        for tmp_old_path in old_paths:
-            if tmp_old_path in deleted:
-                old_path = tmp_old_path
-                break
-        if not old_path:
-            continue
+
+        old_path = old_paths.pop(index)
         renamed.append(
             {"path": {"old": old_path, "new": path}, "hash": path_hash}
         )

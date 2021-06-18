@@ -38,6 +38,7 @@ def test_experiments_diff(dvc, scm, mocker):
             "HEAD~10",
             "HEAD~1",
             "--all",
+            "--param-deps",
             "--show-json",
             "--show-md",
             "--old",
@@ -53,7 +54,7 @@ def test_experiments_diff(dvc, scm, mocker):
     assert cmd.run() == 0
 
     m.assert_called_once_with(
-        cmd.repo, a_rev="HEAD~10", b_rev="HEAD~1", all=True
+        cmd.repo, a_rev="HEAD~10", b_rev="HEAD~1", all=True, param_deps=True
     )
 
 
@@ -66,6 +67,7 @@ def test_experiments_show(dvc, scm, mocker):
             "--all-branches",
             "--all-commits",
             "--sha",
+            "--param-deps",
             "-n",
             "1",
         ]
@@ -84,6 +86,7 @@ def test_experiments_show(dvc, scm, mocker):
         all_commits=True,
         sha_only=True,
         num=1,
+        param_deps=True,
     )
 
 
@@ -93,7 +96,7 @@ def test_experiments_run(dvc, scm, mocker):
         "name": None,
         "queue": False,
         "run_all": False,
-        "jobs": None,
+        "jobs": 1,
         "tmp_dir": False,
         "checkpoint_resume": None,
         "reset": False,
@@ -104,6 +107,7 @@ def test_experiments_run(dvc, scm, mocker):
     mocker.patch.object(cmd.repo, "reproduce")
     mocker.patch.object(cmd.repo.experiments, "run")
     cmd.run()
+    # pylint: disable=no-member
     cmd.repo.experiments.run.assert_called_with(**default_arguments)
 
 
@@ -257,6 +261,4 @@ def test_experiments_remove(dvc, scm, mocker):
 
     assert cmd.run() == 0
 
-    m.assert_called_once_with(
-        cmd.repo, exp_names=[], queue=True,
-    )
+    m.assert_called_once_with(cmd.repo, exp_names=[], queue=True)

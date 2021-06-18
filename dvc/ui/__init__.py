@@ -1,14 +1,22 @@
 import sys
 from collections import defaultdict
-from typing import Any, Dict, Iterable, Optional, TextIO
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    Optional,
+    Sequence,
+    Union,
+)
 
 from funcy import cached_property
 
 from dvc.progress import Tqdm
 from dvc.utils import colorize
 
-NEWLINE = "\n"
-SEP = " "
+if TYPE_CHECKING:
+    from dvc.ui.table import Headers, Styles, TableData
 
 
 class Formatter:
@@ -26,18 +34,13 @@ class Formatter:
 
 class Console:
     def __init__(
-        self,
-        formatter: Formatter = None,
-        output: TextIO = None,
-        error: TextIO = None,
-        disable: bool = False,
+        self, formatter: Formatter = None, enable: bool = False
     ) -> None:
-        self._input: TextIO = sys.stdin
-        self._output: TextIO = output or sys.stdout
-        self._error: TextIO = error or sys.stderr
-
         self.formatter: Formatter = formatter or Formatter()
-        self.disabled: bool = disable
+        self._enabled: bool = enable
+
+    def enable(self) -> None:
+        self._enabled = True
 
     def success(self, message: str) -> None:
         self.write(message, style="success")
@@ -52,37 +55,42 @@ class Console:
         self,
         *objects: Any,
         style: str = None,
-        sep: str = SEP,
-        end: str = NEWLINE,
-        flush: bool = False,
+        sep: str = None,
+        end: str = None,
     ) -> None:
         return self.write(
             *objects,
             style=style,
             sep=sep,
             end=end,
-            file=self._error,
-            flush=flush,
+            stderr=True,
         )
 
     def write(
         self,
         *objects: Any,
         style: str = None,
-        sep: str = SEP,
-        end: str = NEWLINE,
-        file: TextIO = None,
-        flush: bool = False,
+        sep: str = None,
+        end: str = None,
+        stderr: bool = False,
+        force: bool = False,
+        styled: bool = False,
     ) -> None:
-        if self.disabled:
+        sep = " " if sep is None else sep
+        end = "\n" if end is None else end
+        if not self._enabled and not force:
             return
 
-        file = file or self._output
-        values = (self.formatter.format(obj, style=style) for obj in objects)
-        return print(*values, sep=sep, end=end, file=file, flush=flush)
+        if styled:
+            console = self.error_console if stderr else self.rich_console
+            return console.print(*objects, sep=sep, end=end)
 
-    def progress(self, *args, **kwargs) -> Tqdm:
-        kwargs.setdefault("file", self._error)
+        file = sys.stderr if stderr else sys.stdout
+        values = (self.formatter.format(obj, style=style) for obj in objects)
+        return print(*values, sep=sep, end=end, file=file)
+
+    @staticmethod
+    def progress(*args, **kwargs) -> Tqdm:
         return Tqdm(*args, **kwargs)
 
     def prompt(
@@ -125,42 +133,62 @@ class Console:
         """rich_console is only set to stdout for now."""
         from rich import console
 
-        return console.Console(file=self._output)
+        return console.Console()
 
-    def rich_table(self, pager: bool = True):
-        pass
+    @cached_property
+    def error_console(self):
+        from rich import console
 
-    def table(self, header, rows, markdown: bool = False):
-        from tabulate import tabulate
+        return console.Console(stderr=True)
 
-        if not rows and not markdown:
-            return ""
+    def table(
+        self,
+        data: "TableData",
+        headers: "Headers" = None,
+        markdown: bool = False,
+        rich_table: bool = False,
+        force: bool = True,
+        pager: bool = False,
+        header_styles: Union[Dict[str, "Styles"], Sequence["Styles"]] = None,
+        row_styles: Sequence["Styles"] = None,
+        borders: Union[bool, str] = False,
+    ) -> None:
+        from dvc.ui import table as t
 
-        ret = tabulate(
-            rows,
-            header,
-            tablefmt="github" if markdown else "plain",
-            disable_numparse=True,
-            # None will be shown as "" by default, overriding
-            missingval="—",
+        if not data and not markdown:
+            return
+
+        if not markdown and rich_table:
+            if force or self._enabled:
+                return t.rich_table(
+                    self,
+                    data,
+                    headers,
+                    pager=pager,
+                    header_styles=header_styles,
+                    row_styles=row_styles,
+                    borders=borders,
+                )
+
+            return
+
+        return t.plain_table(
+            self, data, headers, markdown=markdown, pager=pager, force=force
         )
 
-        if markdown:
-            # NOTE: md table is incomplete without the trailing newline
-            ret += "\n"
 
-        self.write(ret)
+ui = Console()
 
 
 if __name__ == "__main__":
-    ui = Console()
+    ui.enable()
 
     ui.write("No default remote set")
     ui.success("Everything is up to date.")
     ui.warn("Run queued experiments will be removed.")
     ui.error("too few arguments.")
 
-    ui.table("keys", {"Path": ["scores.json"], "auc": ["0.5674"]})
+    ui.table([("scores.json", "0.5674")], headers=["Path", "auc"])
     ui.table(
-        "keys", {"Path": ["scores.json"], "auc": ["0.5674"]}, markdown=True
+        [("scores.json", "0.5674")], headers=["Path", "auc"], markdown=True
     )

@@ -396,14 +396,12 @@ class Context(CtxDict):
             raise ReservedKeyError(matches)
         return super().merge_update(other, overwrite=overwrite)
 
-    def merge_from(
-        self, fs, item: str, wdir: PathInfo, overwrite=False,
-    ):
+    def merge_from(self, fs, item: str, wdir: PathInfo, overwrite=False):
         path, _, keys_str = item.partition(":")
         select_keys = lfilter(bool, keys_str.split(",")) if keys_str else None
-        path_info = wdir / path
 
-        abspath = os.path.abspath(path_info)
+        abspath = os.path.abspath(wdir / path)
+        path_info = PathInfo(abspath)
         if abspath in self.imports:
             if not select_keys and self.imports[abspath] is None:
                 return  # allow specifying complete filepath multiple times

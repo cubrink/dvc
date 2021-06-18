@@ -56,9 +56,7 @@ def test_walk_onerror(tmp_dir, scm):
     def onerror(exc):
         raise exc
 
-    tmp_dir.scm_gen(
-        {"foo": "foo"}, commit="init",
-    )
+    tmp_dir.scm_gen({"foo": "foo"}, commit="init")
     fs = scm.get_fs("HEAD")
 
     # path does not exist
@@ -334,9 +332,7 @@ def test_commit_no_verify(tmp_dir, scm, git, hook):
         pytest.skip()
 
     hook_file = os.path.join(".git", "hooks", hook)
-    tmp_dir.gen(
-        hook_file, "#!/usr/bin/env python\nimport sys\nsys.exit(1)",
-    )
+    tmp_dir.gen(hook_file, "#!/usr/bin/env python\nimport sys\nsys.exit(1)")
     os.chmod(hook_file, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
 
     tmp_dir.gen("foo", "foo")
@@ -400,7 +396,7 @@ def test_checkout_index(tmp_dir, scm, git):
 
 
 @pytest.mark.parametrize(
-    "strategy, expected", [("ours", "baz"), ("theirs", "bar")],
+    "strategy, expected", [("ours", "baz"), ("theirs", "bar")]
 )
 def test_checkout_index_conflicts(tmp_dir, scm, git, strategy, expected):
     from dvc.scm.base import MergeConflictError
@@ -495,9 +491,7 @@ def test_reset(tmp_dir, scm, git):
     if git.test_backend == "dulwich":
         pytest.skip()
 
-    tmp_dir.scm_gen(
-        {"foo": "foo", "dir": {"baz": "baz"}}, commit="init",
-    )
+    tmp_dir.scm_gen({"foo": "foo", "dir": {"baz": "baz"}}, commit="init")
 
     tmp_dir.gen({"foo": "bar", "dir": {"baz": "bar"}})
     scm.add(["foo", os.path.join("dir", "baz")])
@@ -528,20 +522,10 @@ def test_reset(tmp_dir, scm, git):
     assert len(unstaged) == 2
 
 
-def test_remind_to_track(tmp_dir, scm, caplog):
-    files = ["fname with spaces.txt", "тест", "foo"]
-    tmp_dir.gen({name: "foo" for name in files})
-    scm.files_to_track.update(files)
-
+def test_remind_to_track(scm, caplog):
+    scm.files_to_track = ["fname with spaces.txt", "тест", "foo"]
     scm.remind_to_track()
-    assert "git add 'fname with spaces.txt' foo 'тест'" in caplog.text
-
-    scm.add(["foo"])
-    caplog.clear()
-
-    scm.remind_to_track()
-    assert "git add 'fname with spaces.txt' 'тест'" in caplog.text
-    assert "foo" not in caplog.text
+    assert "git add 'fname with spaces.txt' 'тест' foo" in caplog.text
 
 
 def test_add(tmp_dir, scm, git):

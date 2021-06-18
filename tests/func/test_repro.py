@@ -15,7 +15,7 @@ from dvc.exceptions import (
 )
 from dvc.fs.local import LocalFileSystem
 from dvc.main import main
-from dvc.output.base import BaseOutput
+from dvc.output import Output
 from dvc.stage import Stage
 from dvc.stage.exceptions import StageFileDoesNotExistError
 from dvc.system import System
@@ -652,7 +652,7 @@ class TestReproDataSource(TestReproChangedData):
 
         self.assertTrue(filecmp.cmp(self.FOO, self.BAR, shallow=False))
         self.assertEqual(
-            stages[0].outs[0].hash_info.value, file_md5(self.BAR, self.dvc.fs),
+            stages[0].outs[0].hash_info.value, file_md5(self.BAR, self.dvc.fs)
         )
 
 
@@ -883,9 +883,9 @@ class TestReproAlreadyCached(TestRepro):
         )
 
         patch_checkout = patch.object(
-            BaseOutput,
+            Output,
             "checkout",
-            side_effect=BaseOutput.checkout,
+            side_effect=Output.checkout,
             autospec=True,
         )
 
@@ -914,6 +914,7 @@ class TestShouldDisplayMetricsOnReproWithMetricsOption(TestDvc):
         self.assertEqual(0, ret)
 
         self._caplog.clear()
+        self._capsys.readouterr()  # clearing the buffer
 
         from dvc.dvcfile import DVC_FILE_SUFFIX
 
@@ -923,7 +924,8 @@ class TestShouldDisplayMetricsOnReproWithMetricsOption(TestDvc):
         self.assertEqual(0, ret)
 
         expected_metrics_display = f"Path\n{metrics_file}  {metrics_value}\n"
-        self.assertIn(expected_metrics_display, self._caplog.text)
+        actual, _ = self._capsys.readouterr()
+        self.assertIn(expected_metrics_display, actual)
 
 
 @pytest.fixture

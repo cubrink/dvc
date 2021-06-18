@@ -1,10 +1,8 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Optional
 
 HASH_DIR_SUFFIX = ".dir"
-
-DirInfo = Dict[str, str]
 
 
 @dataclass
@@ -14,7 +12,6 @@ class HashInfo:
 
     name: Optional[str]
     value: Optional[str]
-    dir_info: Optional[DirInfo] = field(default=None, compare=False)
     size: Optional[int] = field(default=None, compare=False)
     nfiles: Optional[int] = field(default=None, compare=False)
 
@@ -23,6 +20,9 @@ class HashInfo:
 
     def __str__(self):
         return f"{self.name}: {self.value}"
+
+    def __hash__(self):
+        return hash((self.name, self.value))
 
     @classmethod
     def from_dict(cls, d):

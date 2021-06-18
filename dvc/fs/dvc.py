@@ -10,7 +10,7 @@ from ._metadata import Metadata
 from .base import BaseFileSystem
 
 if typing.TYPE_CHECKING:
-    from dvc.output.base import BaseOutput
+    from dvc.output import Output
 
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,9 @@ class DvcFileSystem(BaseFileSystem):  # pylint:disable=abstract-method
     scheme = "local"
     PARAM_CHECKSUM = "md5"
 
-    def __init__(self, repo):
-        super().__init__(repo, {"url": repo.root_dir})
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.repo = kwargs["repo"]
 
     def _find_outs(self, path, *args, **kwargs):
         outs = self.repo.find_outs_by_path(path, *args, **kwargs)
@@ -42,15 +43,15 @@ class DvcFileSystem(BaseFileSystem):  # pylint:disable=abstract-method
         return outs
 
     def _get_granular_hash(
-        self, path_info: PathInfo, out: "BaseOutput", remote=None
+        self, path_info: PathInfo, out: "Output", remote=None
     ):
         assert isinstance(path_info, PathInfo)
         # NOTE: use string paths here for performance reasons
         key = tuple(relpath(path_info, out.path_info).split(os.sep))
         out.get_dir_cache(remote=remote)
-        file_hash = out.hash_info.dir_info.get(key)
-        if file_hash:
-            return file_hash
+        obj = out.obj.trie.get(key)
+        if obj:
+            return obj.hash_info
         raise FileNotFoundError
 
     def open(  # type: ignore
@@ -67,13 +68,17 @@ class DvcFileSystem(BaseFileSystem):  # pylint:disable=abstract-method
             raise IsADirectoryError
 
         out = outs[0]
+
+        if not out.hash_info:
+            raise FileNotFoundError
+
         if out.changed_cache(filter_info=path):
             from dvc.config import NoRemoteError
 
             try:
                 remote_obj = self.repo.cloud.get_remote(remote)
-            except NoRemoteError:
-                raise FileNotFoundError
+            except NoRemoteError as exc:
+                raise FileNotFoundError from exc
             if out.is_dir_checksum:
                 checksum = self._get_granular_hash(path, out).value
             else:
@@ -131,21 +136,14 @@ class DvcFileSystem(BaseFileSystem):  # pylint:disable=abstract-method
         # pull dir cache if needed
         out.get_dir_cache(**kwargs)
 
-        dir_cache = out.dir_cache
-        if not dir_cache:
-            raise FileNotFoundError
-
-        from dvc.objects import Tree
-
-        hash_info = Tree.save_dir_info(out.odb, dir_cache)
-        if hash_info != out.hash_info:
+        if not out.obj:
             raise FileNotFoundError
 
     def _add_dir(self, trie, out, **kwargs):
         self._fetch_dir(out, **kwargs)
 
         base = out.path_info.parts
-        for key, _ in out.dir_cache.items():  # noqa: B301
+        for key, _ in out.obj:  # noqa: B301
             trie[base + key] = None
 
     def _walk(self, root, trie, topdown=True, **kwargs):
@@ -241,9 +239,9 @@ class DvcFileSystem(BaseFileSystem):  # pylint:disable=abstract-method
         elif meta.part_of_output:
             (out,) = meta.outs
             key = path_info.relative_to(out.path_info).parts
-            hash_info = out.hash_info.dir_info.trie.get(key)
-            if hash_info:
-                ret["size"] = hash_info.size
-                ret[hash_info.name] = hash_info.value
+            obj = out.obj.trie.get(key)
+            if obj:
+                ret["size"] = obj.size
+                ret[obj.hash_info.name] = obj.hash_info.value
 
         return ret

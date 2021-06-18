@@ -1,3 +1,4 @@
+import itertools
 import logging
 import os
 import stat
@@ -418,28 +419,6 @@ def test_untracked(tmp_dir, scm, dvc, caplog, workspace):
         assert fobj.read().strip() == "foo: 2"
 
 
-@pytest.mark.parametrize("workspace", [True, False])
-def test_dirty_lockfile(tmp_dir, scm, dvc, exp_stage, workspace):
-    from dvc.dvcfile import LockfileCorruptedError
-
-    tmp_dir.gen("dvc.lock", "foo")
-
-    with pytest.raises(LockfileCorruptedError):
-        dvc.reproduce(exp_stage.addressing)
-
-    results = dvc.experiments.run(
-        exp_stage.addressing, params=["foo=2"], tmp_dir=not workspace
-    )
-    exp = first(results)
-
-    fs = scm.get_fs(exp)
-    with fs.open(tmp_dir / "metrics.yaml") as fobj:
-        assert fobj.read().strip() == "foo: 2"
-
-    if not workspace:
-        assert (tmp_dir / "dvc.lock").read_text() == "foo"
-
-
 def test_packed_args_exists(tmp_dir, scm, dvc, exp_stage, caplog):
     from dvc.repo.experiments.executor.base import BaseExecutor
 
@@ -470,9 +449,7 @@ def test_list(tmp_dir, scm, dvc, exp_stage):
     exp_c = first(results)
     ref_info_c = first(exp_refs_by_rev(scm, exp_c))
 
-    assert dvc.experiments.ls() == {
-        baseline_c: [ref_info_c.name],
-    }
+    assert dvc.experiments.ls() == {baseline_c: [ref_info_c.name]}
 
     exp_list = dvc.experiments.ls(rev=ref_info_a.baseline_sha)
     assert {key: set(val) for key, val in exp_list.items()} == {
@@ -633,3 +610,65 @@ def test_checkout_targets_deps(tmp_dir, scm, dvc, exp_stage):
     assert (tmp_dir / "foo").exists()
     assert (tmp_dir / "foo").read_text() == "foo"
     assert not (tmp_dir / "bar").exists()
+
+
+@pytest.mark.parametrize("tail", ["", "~1", "^"])
+def test_fix_exp_head(tmp_dir, scm, tail):
+    from dvc.repo.experiments.base import EXEC_BASELINE
+    from dvc.repo.experiments.utils import fix_exp_head
+
+    head = "HEAD" + tail
+    assert head == fix_exp_head(scm, head)
+
+    scm.set_ref(EXEC_BASELINE, "refs/heads/master")
+    assert EXEC_BASELINE + tail == fix_exp_head(scm, head)
+    assert "foo" + tail == fix_exp_head(scm, "foo" + tail)
+
+
+@pytest.mark.parametrize(
+    "workspace, params, target",
+    itertools.product((True, False), ("foo: 1", "foo: 2"), (True, False)),
+)
+def test_modified_data_dep(tmp_dir, scm, dvc, workspace, params, target):
+    tmp_dir.dvc_gen("data", "data")
+    tmp_dir.gen("copy.py", COPY_SCRIPT)
+    tmp_dir.gen("params.yaml", "foo: 1")
+    exp_stage = dvc.run(
+        cmd="python copy.py params.yaml metrics.yaml",
+        metrics_no_cache=["metrics.yaml"],
+        params=["foo"],
+        name="copy-file",
+        deps=["copy.py", "data"],
+    )
+    scm.add(
+        [
+            "dvc.yaml",
+            "dvc.lock",
+            "copy.py",
+            "params.yaml",
+            "metrics.yaml",
+            "data.dvc",
+            ".gitignore",
+        ]
+    )
+    scm.commit("init")
+
+    tmp_dir.gen("params.yaml", params)
+    tmp_dir.gen("data", "modified")
+
+    results = dvc.experiments.run(
+        exp_stage.addressing if target else None, tmp_dir=not workspace
+    )
+    exp = first(results)
+
+    for rev in dvc.brancher(revs=[exp]):
+        if rev != exp:
+            continue
+        with dvc.repo_fs.open(tmp_dir / "metrics.yaml") as fobj:
+            assert fobj.read().strip() == params
+        with dvc.repo_fs.open(tmp_dir / "data") as fobj:
+            assert fobj.read().strip() == "modified"
+
+    if workspace:
+        assert (tmp_dir / "metrics.yaml").read_text().strip() == params
+        assert (tmp_dir / "data").read_text().strip() == "modified"

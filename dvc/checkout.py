@@ -4,18 +4,21 @@ import os
 from shortuuid import uuid
 
 import doltcli as dolt
-import dvc.prompt as prompt
+from dvc import prompt
 from dvc.exceptions import (
     CacheLinkError,
     CheckoutError,
     ConfirmRemoveError,
     DvcException,
 )
-from dvc.objects import ObjectFormatError, check, load
-from dvc.objects.stage import get_hash
+from dvc.ignore import DvcIgnoreFilter
+from dvc.objects import check, load
+from dvc.objects.errors import ObjectFormatError
+from dvc.objects.stage import stage
 from dvc.remote.slow_link_detection import (  # type: ignore[attr-defined]
     slow_link_guard,
 )
+from dvc.types import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ def _changed(path_info, fs, obj, cache):
         return True
 
     try:
-        actual = get_hash(path_info, fs, obj.hash_info.name, cache)
+        actual = stage(cache, path_info, fs, obj.hash_info.name).hash_info
     except FileNotFoundError:
         logger.debug("'%s' doesn't exist.", path_info)
         return True
@@ -61,7 +64,7 @@ def _remove(path_info, fs, cache, force=False):
         fs.remove(path_info)
         return
 
-    current = get_hash(path_info, fs, fs.PARAM_CHECKSUM, cache)
+    current = stage(cache, path_info, fs, fs.PARAM_CHECKSUM).hash_info
     try:
         obj = load(cache, current)
         check(cache, obj)
@@ -99,7 +102,7 @@ def _do_link(cache, from_info, to_info, link_method):
     link_method(from_info, to_info)
 
     logger.debug(
-        "Created '%s': %s -> %s", cache.cache_types[0], from_info, to_info,
+        "Created '%s': %s -> %s", cache.cache_types[0], from_info, to_info
     )
 
 
@@ -136,7 +139,7 @@ def _cache_is_copy(cache, path_info):
         return True
 
     workspace_file = path_info.with_name("." + uuid())
-    test_cache_file = cache.fs.path_info / ".cache_type_test_file"
+    test_cache_file = cache.path_info / ".cache_type_test_file"
     if not cache.fs.exists(test_cache_file):
         cache.makedirs(test_cache_file.parent)
         with cache.fs.open(test_cache_file, "wb") as fobj:
@@ -152,7 +155,14 @@ def _cache_is_copy(cache, path_info):
 
 
 def _checkout_file(
-    path_info, fs, obj, cache, force, progress_callback=None, relink=False,
+    path_info,
+    fs,
+    obj,
+    cache,
+    force,
+    progress_callback=None,
+    relink=False,
+    state=None,
 ):
     """The file is changed we need to checkout a new copy"""
     modified = False
@@ -172,17 +182,24 @@ def _checkout_file(
         _link(cache, cache_info, path_info)
         modified = True
 
-    fs.repo.state.save(path_info, fs, obj.hash_info)
+    if state:
+        state.save(path_info, fs, obj.hash_info)
+
     if progress_callback:
         progress_callback(str(path_info))
 
     return modified
 
 
-def _remove_redundant_files(path_info, fs, dir_info, cache, force):
-    existing_files = set(fs.walk_files(path_info))
+def _remove_redundant_files(
+    path_info, fs, obj, cache, force, dvcignore: Optional[DvcIgnoreFilter]
+):
+    if dvcignore:
+        existing_files = set(dvcignore.walk_files(fs, path_info))
+    else:
+        existing_files = set(fs.walk_files(path_info))
 
-    needed_files = {path_info.joinpath(*key) for key, _ in dir_info.items()}
+    needed_files = {path_info.joinpath(*key) for key, _ in obj}
     redundant_files = existing_files - needed_files
     for path in redundant_files:
         _remove(path, fs, cache, force)
@@ -191,9 +208,17 @@ def _remove_redundant_files(path_info, fs, dir_info, cache, force):
 
 
 def _checkout_dir(
-    path_info, fs, obj, cache, force, progress_callback=None, relink=False,
+    path_info,
+    fs,
+    obj,
+    cache,
+    force,
+    progress_callback=None,
+    relink=False,
+    dvcignore: Optional[DvcIgnoreFilter] = None,
+    state=None,
 ):
-    modified = False, False
+    modified = False
     # Create dir separately so that dir is created
     # even if there are no files in it
     if not fs.exists(path_info):
@@ -202,27 +227,29 @@ def _checkout_dir(
 
     logger.debug("Linking directory '%s'.", path_info)
 
-    for entry_key, entry_hash_info in obj.hash_info.dir_info.items():
+    for entry_key, entry_obj in obj:
         entry_modified = _checkout_file(
             path_info.joinpath(*entry_key),
             fs,
-            cache.get(entry_hash_info),
+            entry_obj,
             cache,
             force,
             progress_callback,
             relink,
+            state=None,
         )
         if entry_modified:
             modified = True
 
     modified = (
         _remove_redundant_files(
-            path_info, fs, obj.hash_info.dir_info, cache, force
+            path_info, fs, obj, cache, force, dvcignore=dvcignore
         )
         or modified
     )
 
-    fs.repo.state.save(path_info, fs, obj.hash_info)
+    if state:
+        state.save(path_info, fs, obj.hash_info)
 
     # relink is not modified, assume it as nochange
     return modified and not relink
@@ -258,6 +285,8 @@ def _checkout(
     force=False,
     progress_callback=None,
     relink=False,
+    dvcignore: Optional[DvcIgnoreFilter] = None,
+    state=None,
 ):
     if obj.hash_info.value is not None and ".dolt" in obj.hash_info.value:
         ret = _checkout_dolt(
@@ -265,14 +294,23 @@ def _checkout(
         )
     elif not obj.hash_info.isdir:
         ret = _checkout_file(
-            path_info, fs, obj, cache, force, progress_callback, relink
+            path_info, fs, obj, cache, force, progress_callback, relink, state
         )
     else:
         ret = _checkout_dir(
-            path_info, fs, obj, cache, force, progress_callback, relink,
+            path_info,
+            fs,
+            obj,
+            cache,
+            force,
+            progress_callback,
+            relink,
+            dvcignore=dvcignore,
+            state=state,
         )
 
-    fs.repo.state.save_link(path_info, fs)
+    if state:
+        state.save_link(path_info, fs)
 
     return ret
 
@@ -286,6 +324,8 @@ def checkout(
     progress_callback=None,
     relink=False,
     quiet=False,
+    dvcignore: Optional[DvcIgnoreFilter] = None,
+    state=None,
 ):
     if path_info.scheme not in ["local", cache.fs.scheme]:
         raise NotImplementedError
@@ -302,7 +342,7 @@ def checkout(
         failed = path_info
 
     elif not relink and not _changed(path_info, fs, obj, cache):
-        logger.trace("Data '%s' didn't change.", path_info)
+        logger.trace("Data '%s' didn't change.", path_info)  # type: ignore
         skip = True
     else:
         try:
@@ -319,9 +359,7 @@ def checkout(
 
     if failed or skip:
         if progress_callback and obj:
-            progress_callback(
-                str(path_info), len(obj),
-            )
+            progress_callback(str(path_info), len(obj))
         if failed:
             raise CheckoutError([failed])
         return
@@ -329,5 +367,13 @@ def checkout(
     logger.debug("Checking out '%s' with cache '%s'.", path_info, obj)
 
     return _checkout(
-        path_info, fs, obj, cache, force, progress_callback, relink,
+        path_info,
+        fs,
+        obj,
+        cache,
+        force,
+        progress_callback,
+        relink,
+        dvcignore=dvcignore,
+        state=state,
     )

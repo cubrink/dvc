@@ -64,10 +64,10 @@ class SSHObjectDB(ObjectDB):
                 return self.batch_exists(chunks, callback=pbar.update_msg)
 
             with ThreadPoolExecutor(
-                max_workers=jobs or self.fs.JOBS
+                max_workers=jobs or self.fs.jobs
             ) as executor:
                 path_infos = [self.hash_to_path_info(x) for x in hashes]
-                chunks = to_chunks(path_infos, num_chunks=self.fs.JOBS)
+                chunks = to_chunks(path_infos, num_chunks=self.fs.jobs)
                 results = executor.map(exists_with_progress, chunks)
                 in_remote = itertools.chain.from_iterable(results)
                 ret = list(itertools.compress(hashes, in_remote))
@@ -75,10 +75,10 @@ class SSHObjectDB(ObjectDB):
 
     def _list_paths(self, prefix=None, progress_callback=None):
         if prefix:
-            root = posixpath.join(self.fs.path_info.path, prefix[:2])
+            root = posixpath.join(self.path_info.path, prefix[:2])
         else:
-            root = self.fs.path_info.path
-        with self.fs.ssh(self.fs.path_info) as ssh:
+            root = self.path_info.path
+        with self.fs.ssh(self.path_info) as ssh:
             if prefix and not ssh.exists(root):
                 return
             # If we simply return an iterator then with above closes instantly

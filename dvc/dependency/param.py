@@ -4,10 +4,11 @@ from collections import defaultdict
 import dpath.util
 from voluptuous import Any
 
-from dvc.dependency.local import LocalDependency
 from dvc.exceptions import DvcException
 from dvc.hash_info import HashInfo
 from dvc.utils.serialize import LOADERS, ParseError
+
+from .base import Dependency
 
 
 class MissingParamsError(DvcException):
@@ -18,7 +19,7 @@ class BadParamFileError(DvcException):
     pass
 
 
-class ParamsDependency(LocalDependency):
+class ParamsDependency(Dependency):
     PARAM_PARAMS = "params"
     PARAM_SCHEMA = {PARAM_PARAMS: Any(dict, list, None)}
     DEFAULT_PARAMS_FILE = "params.yaml"
@@ -84,18 +85,33 @@ class ParamsDependency(LocalDependency):
     def status(self):
         return self.workspace_status()
 
-    def read_params(self):
+    def _read(self):
         if not self.exists:
             return {}
 
         suffix = self.path_info.suffix.lower()
         loader = LOADERS[suffix]
         try:
-            config = loader(self.path_info, fs=self.repo.fs)
+            return loader(self.path_info, fs=self.repo.fs)
         except ParseError as exc:
             raise BadParamFileError(
                 f"Unable to read parameters from '{self}'"
             ) from exc
+
+    def read_params_d(self):
+        config = self._read()
+
+        ret = {}
+        for param in self.params:
+            dpath.util.merge(
+                ret,
+                dpath.util.search(config, param, separator="."),
+                separator=".",
+            )
+        return ret
+
+    def read_params(self):
+        config = self._read()
 
         ret = {}
         for param in self.params:
@@ -112,7 +128,7 @@ class ParamsDependency(LocalDependency):
         if missing_params:
             raise MissingParamsError(
                 "Parameters '{}' are missing from '{}'.".format(
-                    ", ".join(missing_params), self,
+                    ", ".join(missing_params), self
                 )
             )
 

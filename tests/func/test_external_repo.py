@@ -52,7 +52,7 @@ def test_cache_reused(erepo_dir, mocker, local_cloud):
         erepo_dir.dvc_gen("file", "text", commit="add file")
     erepo_dir.dvc.push()
 
-    download_spy = mocker.spy(LocalFileSystem, "download")
+    download_spy = mocker.spy(LocalFileSystem, "download_file")
 
     # Use URL to prevent any fishy optimizations
     url = f"file://{erepo_dir}"
@@ -94,7 +94,7 @@ def test_pull_subdir_file(tmp_dir, erepo_dir):
     dest = tmp_dir / "file"
     with external_repo(os.fspath(erepo_dir)) as repo:
         repo.repo_fs.download(
-            PathInfo(repo.root_dir) / "subdir" / "file", PathInfo(dest),
+            PathInfo(repo.root_dir) / "subdir" / "file", PathInfo(dest)
         )
 
     assert dest.is_file()
@@ -205,7 +205,8 @@ def test_subrepos_are_ignored(tmp_dir, erepo_dir):
             repo.odb.local,
             PathInfo(repo.root_dir) / "dir",
             repo.repo_fs,
-            follow_subrepos=False,
+            "md5",
+            dvcignore=repo.dvcignore,
         )
         save(repo.odb.local, obj)
         assert set(cache_dir.glob("*/*")) == {

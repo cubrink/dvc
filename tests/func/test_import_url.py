@@ -123,7 +123,9 @@ def test_import_url_with_no_exec(tmp_dir, dvc, erepo_dir):
     [
         pytest.lazy_fixture("local_cloud"),
         pytest.lazy_fixture("s3"),
-        pytest.lazy_fixture("gs"),
+        pytest.param(
+            pytest.lazy_fixture("gs"), marks=pytest.mark.needs_internet
+        ),
         pytest.lazy_fixture("hdfs"),
         pytest.lazy_fixture("webhdfs"),
         pytest.param(
@@ -249,7 +251,9 @@ def test_import_url_preserve_meta(tmp_dir, dvc):
     [
         pytest.lazy_fixture("local_cloud"),
         pytest.lazy_fixture("s3"),
-        pytest.lazy_fixture("gs"),
+        pytest.param(
+            pytest.lazy_fixture("gs"), marks=pytest.mark.needs_internet
+        ),
         pytest.lazy_fixture("hdfs"),
         pytest.param(
             pytest.lazy_fixture("ssh"),
@@ -278,6 +282,7 @@ def test_import_url_to_remote_single_file(
 
     hash_info = stage.outs[0].hash_info
     assert local_remote.hash_to_path_info(hash_info.value).read_text() == "foo"
+    assert hash_info.size == len("foo")
 
 
 @pytest.mark.parametrize(
@@ -285,7 +290,9 @@ def test_import_url_to_remote_single_file(
     [
         pytest.lazy_fixture("local_cloud"),
         pytest.lazy_fixture("s3"),
-        pytest.lazy_fixture("gs"),
+        pytest.param(
+            pytest.lazy_fixture("gs"), marks=pytest.mark.needs_internet
+        ),
         pytest.lazy_fixture("hdfs"),
         pytest.param(
             pytest.lazy_fixture("ssh"),
@@ -353,3 +360,42 @@ def test_import_url_to_remote_absolute(
 def test_import_url_to_remote_invalid_combinations(dvc):
     with pytest.raises(InvalidArgumentError, match="--no-exec"):
         dvc.imp_url("s3://bucket/foo", no_exec=True, to_remote=True)
+
+
+empty_xfail = pytest.mark.xfail(
+    reason="https://github.com/iterative/dvc/issues/5521"
+)
+
+
+@pytest.mark.parametrize(
+    "workspace",
+    [
+        pytest.lazy_fixture("hdfs"),
+        pytest.param(pytest.lazy_fixture("s3"), marks=empty_xfail),
+        pytest.param(pytest.lazy_fixture("gs"), marks=empty_xfail),
+        pytest.param(pytest.lazy_fixture("azure"), marks=empty_xfail),
+        pytest.param(
+            pytest.lazy_fixture("ssh"),
+            marks=pytest.mark.skipif(
+                os.name == "nt", reason="disabled on windows"
+            ),
+        ),
+    ],
+    indirect=True,
+)
+def test_import_url_empty_directory(tmp_dir, dvc, workspace):
+    # prefix based storage services (e.g s3) doesn't have the real concept
+    # of directories. So instead we create an empty file that ends with a
+    # trailing slash in order to actually support this operation
+    if workspace.IS_OBJECT_STORAGE:
+        contents = ""
+    else:
+        contents = {}
+
+    workspace.gen({"empty_dir/": contents})
+
+    dvc.imp_url("remote://workspace/empty_dir/")
+
+    empty_dir = tmp_dir / "empty_dir"
+    assert empty_dir.is_dir()
+    assert tuple(empty_dir.iterdir()) == ()

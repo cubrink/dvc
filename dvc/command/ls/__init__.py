@@ -1,11 +1,11 @@
 import argparse
 import logging
-import sys
 
 from dvc.command import completion
 from dvc.command.base import CmdBaseNoRepo, append_doc_link
 from dvc.command.ls.ls_colors import LsColors
 from dvc.exceptions import DvcException
+from dvc.ui import ui
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,13 @@ class CmdList(CmdBaseNoRepo):
                 recursive=self.args.recursive,
                 dvc_only=self.args.dvc_only,
             )
-            if entries:
-                entries = _prettify(entries, sys.stdout.isatty())
-                logger.info("\n".join(entries))
+            if self.args.show_json:
+                import json
+
+                ui.write(json.dumps(entries))
+            elif entries:
+                entries = _prettify(entries, with_color=True)
+                ui.write("\n".join(entries))
             return 0
         except DvcException:
             logger.exception(f"failed to list '{self.args.url}'")
@@ -64,6 +68,9 @@ def add_parser(subparsers, parent_parser):
     )
     list_parser.add_argument(
         "--dvc-only", action="store_true", help="Show only DVC outputs."
+    )
+    list_parser.add_argument(
+        "--show-json", action="store_true", help="Show output in JSON format."
     )
     list_parser.add_argument(
         "--rev",

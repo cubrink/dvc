@@ -1,12 +1,10 @@
 import argparse
 import logging
-import os
 
 from dvc.command import completion
 from dvc.command.base import CmdBase, append_doc_link, fix_subparsers
 from dvc.exceptions import DvcException
 from dvc.utils import format_link
-from dvc.utils.html import write
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +21,8 @@ class CmdPlots(CmdBase):
         return {k: v for k, v in props.items() if v is not None}
 
     def run(self):
+        from pathlib import Path
+
         if self.args.show_vega:
             if not self.args.targets:
                 logger.error("please specify a target for `--show-vega`")
@@ -41,16 +41,26 @@ class CmdPlots(CmdBase):
                 logger.info(plots[target])
                 return 0
 
-            path = self.args.out or "plots.html"
-            path = os.path.join(os.getcwd(), path)
-
-            write(path, plots)
-
-            logger.info(f"file://{path}")
+            rel: str = self.args.out or "plots.html"
+            path = (Path.cwd() / rel).resolve()
+            self.repo.plots.write_html(
+                path, plots=plots, html_template_path=self.args.html_template
+            )
 
         except DvcException:
             logger.exception("")
             return 1
+
+        assert path.is_absolute()  # as_uri throws ValueError if not absolute
+        url = path.as_uri()
+        logger.info(url)
+        if self.args.open:
+            import webbrowser
+
+            opened = webbrowser.open(rel)
+            if not opened:
+                logger.error("Failed to open. Please try opening it manually.")
+                return 1
 
         return 0
 
@@ -77,7 +87,7 @@ class CmdPlotsDiff(CmdPlots):
 class CmdPlotsModify(CmdPlots):
     def run(self):
         self.repo.plots.modify(
-            self.args.target, props=self._props(), unset=self.args.unset,
+            self.args.target, props=self._props(), unset=self.args.unset
         )
         return 0
 
@@ -85,7 +95,7 @@ class CmdPlotsModify(CmdPlots):
 def add_parser(subparsers, parent_parser):
     PLOTS_HELP = (
         "Commands to visualize and compare plot metrics in structured files "
-        "(JSON, YAML, CSV, TSV)"
+        "(JSON, YAML, CSV, TSV)."
     )
 
     plots_parser = subparsers.add_parser(
@@ -150,7 +160,7 @@ def add_parser(subparsers, parent_parser):
         help=argparse.SUPPRESS,
     )
     plots_diff_parser.add_argument(
-        "revisions", nargs="*", default=None, help="Git commits to plot from",
+        "revisions", nargs="*", default=None, help="Git commits to plot from"
     )
     _add_props_arguments(plots_diff_parser)
     _add_output_arguments(plots_diff_parser)
@@ -165,7 +175,7 @@ def add_parser(subparsers, parent_parser):
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     plots_modify_parser.add_argument(
-        "target", help="Metric file to set properties to",
+        "target", help="Metric file to set properties to"
     ).complete = completion.FILE
     _add_props_arguments(plots_modify_parser)
     plots_modify_parser.add_argument(
@@ -228,4 +238,16 @@ def _add_output_arguments(parser):
         action="store_true",
         default=False,
         help="Show output in Vega format.",
+    )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        default=False,
+        help="Open plot file directly in the browser.",
+    )
+    parser.add_argument(
+        "--html-template",
+        default=None,
+        help="Custom HTML template for VEGA visualization.",
+        metavar="<path>",
     )

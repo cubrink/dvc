@@ -9,7 +9,7 @@ from dvc.utils.cli_parse import parse_params
 from dvc.utils.humanize import truncate_text
 
 if TYPE_CHECKING:
-    from dvc.output.base import BaseOutput
+    from dvc.output import Output
     from dvc.stage import Stage
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ MAX_TEXT_LENGTH = 80
 
 
 def generate_description(stage: "Stage") -> str:
-    def part_desc(outs: Iterable["BaseOutput"]) -> str:
+    def part_desc(outs: Iterable["Output"]) -> str:
         return ", ".join(out.def_path for out in outs)
 
     if not stage.deps and not stage.outs:
@@ -27,7 +27,7 @@ def generate_description(stage: "Stage") -> str:
     if not stage.outs and stage.deps:
         return "Depends on " + part_desc(stage.deps)
 
-    def is_plot_or_metric(out: "BaseOutput"):
+    def is_plot_or_metric(out: "Output"):
         return bool(out.plot) or bool(out.metric)
 
     desc: List[str] = []
@@ -75,16 +75,14 @@ class CmdStageList(CmdBase):
         # removing duplicates while maintaining order
         collected = chain.from_iterable(
             self.repo.stage.collect(
-                target=target,
-                recursive=self.args.recursive,
-                accept_group=True,
+                target=target, recursive=self.args.recursive, accept_group=True
             )
             for target in self.args.targets
         )
         return dict.fromkeys(collected).keys()
 
     def run(self):
-        from dvc.utils.diff import table
+        from dvc.ui import ui
 
         def log_error(relpath: str, exc: Exception):
             if self.args.fail:
@@ -98,8 +96,7 @@ class CmdStageList(CmdBase):
         names_only = self.args.names_only
 
         data = prepare_stages_data(stages, description=not names_only)
-        if data:
-            print(table(header=(), rows=data.items()))
+        ui.table(data.items())
 
         return 0
 
@@ -116,8 +113,11 @@ def parse_cmd(commands: List[str]) -> str:
     """
 
     def quote_argument(arg: str):
-        should_quote = " " in arg and '"' not in arg
-        return f'"{arg}"' if should_quote else arg
+        if not arg:
+            return '""'
+        if " " in arg and '"' not in arg:
+            return f'"{arg}"'
+        return arg
 
     if len(commands) < 2:
         return " ".join(commands)
@@ -202,7 +202,7 @@ def _add_common_args(parser):
         metavar="<path>",
     )
     parser.add_argument(
-        "--live", help="Declare output as dvclive.", metavar="<path>",
+        "--live", help="Declare output as dvclive.", metavar="<path>"
     )
     parser.add_argument(
         "--live-no-cache",
@@ -255,7 +255,8 @@ def _add_common_args(parser):
         "--checkpoints",
         action="append",
         default=[],
-        help=argparse.SUPPRESS,
+        help="Declare checkpoint output file or directory for 'dvc exp run'. "
+        "Not compatible with 'dvc repro'.",
         metavar="<filename>",
     ).complete = completion.FILE
     parser.add_argument(

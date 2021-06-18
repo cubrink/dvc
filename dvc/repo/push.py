@@ -28,7 +28,7 @@ def push(
 
     expanded_targets = glob_targets(targets, glob=glob)
 
-    used = self.used_cache(
+    used = self.used_objs(
         expanded_targets,
         all_branches=all_branches,
         all_tags=all_tags,
@@ -42,18 +42,23 @@ def push(
         revs=revs,
     )
 
-    dolt_pushed = 0
-    remote_conf = None
-    for t in expanded_targets:
-        if os.path.exists(os.path.join(t, ".dolt")):
-            remotes = self.config.get("remote", None)
-            if not remotes:
-                break
-            remote_conf = remotes.get(remote, None)
-            if not remote_conf:
-                break
-            db = dolt.Dolt(t)
-            db.push(remote=remote, set_upstream=True, refspec="master")
-            dolt_pushed += 1
+    pushed = len(used_run_cache)
+    for odb, objs in used.items():
+        if odb is None:
+            pushed += self.cloud.push(objs, jobs, remote=remote)
 
-    return len(used_run_cache) + self.cloud.push(used, jobs, remote=remote) + dolt_pushed
+    dolt_pushed = 0
+    if expanded_targets is not None:
+        for t in expanded_targets:
+            if os.path.exists(os.path.join(t, ".dolt")):
+                remotes = self.config.get("remote", None)
+                if not remotes:
+                    break
+                remote_conf = remotes.get(remote, None)
+                if not remote_conf:
+                    break
+                db = dolt.Dolt(t)
+                db.push(remote=remote, set_upstream=True, refspec="master")
+                dolt_pushed += 1
+
+    return pushed + dolt_pushed

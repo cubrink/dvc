@@ -6,7 +6,6 @@ import shutil
 import subprocess
 from collections import deque
 from contextlib import closing, contextmanager
-from urllib.parse import urlparse
 
 from dvc.hash_info import HashInfo
 from dvc.progress import Tqdm
@@ -65,27 +64,23 @@ class HDFSFileSystem(BaseFileSystem):
     PARAM_CHECKSUM = "checksum"
     TRAVERSE_PREFIX_LEN = 2
 
-    def __init__(self, repo, config):
-        super().__init__(repo, config)
+    def __init__(self, **config):
+        super().__init__(**config)
 
-        self.path_info = None
-        url = config.get("url")
-        if not url:
-            return
+        self.host = config["host"]
+        self.user = config.get("user")
+        self.port = config.get("port")
 
-        parsed = urlparse(url)
-        user = parsed.username or config.get("user")
-
-        self.path_info = self.PATH_CLS.from_parts(
-            scheme=self.scheme,
-            host=parsed.hostname,
-            user=user,
-            port=parsed.port,
-            path=parsed.path,
-        )
+        self.kerb_ticket = config.get("kerb_ticket")
 
     @staticmethod
-    def hdfs(path_info):
+    def _get_kwargs_from_urls(urlpath):
+        from fsspec.implementations.hdfs import PyArrowHDFS
+
+        # pylint:disable=protected-access
+        return PyArrowHDFS._get_kwargs_from_urls(urlpath)
+
+    def hdfs(self, path_info):
         import pyarrow.fs
 
         # NOTE: HadoopFileSystem is not meant to be closed by us and doesn't
@@ -100,6 +95,7 @@ class HDFSFileSystem(BaseFileSystem):
             path_info.host,
             path_info.port,
             user=path_info.user,
+            kerb_ticket=self.kerb_ticket,
         )
 
     @contextmanager
@@ -121,7 +117,7 @@ class HDFSFileSystem(BaseFileSystem):
                 raise FileNotFoundError(*e.args)
             raise
 
-    def exists(self, path_info, use_dvcignore=True):
+    def exists(self, path_info) -> bool:
         assert not isinstance(path_info, list)
         assert path_info.scheme == "hdfs"
         with self.hdfs(path_info) as hdfs:
@@ -157,15 +153,15 @@ class HDFSFileSystem(BaseFileSystem):
         if not topdown:
             yield root, dirs, nondirs
 
-    def walk(self, path_info, **kwargs):
-        if not self.isdir(path_info):
+    def walk(self, top, topdown=True, onerror=None, **kwargs):
+        if not self.isdir(top):
             return
 
-        with self.hdfs(path_info) as hdfs:
+        with self.hdfs(top) as hdfs:
             for root, dnames, fnames in self._walk(
-                hdfs, path_info.path, **kwargs
+                hdfs, top.path, topdown=topdown
             ):
-                yield path_info.replace(path=root), dnames, fnames
+                yield top.replace(path=root), dnames, fnames
 
     def walk_files(self, path_info, **kwargs):
         for root, _, fnames in self.walk(path_info):

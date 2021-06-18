@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 
-import dvc.prompt as prompt
+from dvc import prompt
 from dvc.command.base import CmdBase, append_doc_link
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,7 @@ def add_parser(subparsers, parent_parser):
         help="Keep data files for all Git tags.",
     )
     gc_parser.add_argument(
+        "-A",
         "--all-commits",
         action="store_true",
         default=False,
