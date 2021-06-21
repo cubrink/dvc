@@ -258,10 +258,44 @@ def _checkout_dir(
 def _checkout_dolt(
     path_info, fs, obj, cache, force, progress_callback=None, relink=False,
 ):
-    db = dolt.Dolt(path_info)
+    try:
+        db = dolt.Dolt(path_info)
+    except ValueError as e:
+        print('\n\n\n', '#' * 80, '\n',
+              f'ERROR: {e}', '\n')
+
+        if input("Do you want to clone Dolt now?[y|n] ").lower().strip() == 'y':
+            import configparser
+            from pathlib import Path
+            config = configparser.ConfigParser()
+            localConf = Path('.dvc/config.local')
+            dvcConf = Path('.dvc/config')
+
+            if localConf.is_file():
+                print('Reading from .dvc/config.local')
+                config.read(str(localConf))
+                url = config["""'remote "dolt_remote"'"""]['url']
+            elif dvcConf.is_file():
+                print('Reading from .dvc/config')
+                config.read(str(dvcConf))
+                url = config["""'remote "dolt_remote"'"""]['url']
+            else:
+                url = input('Path to the remote: ').strip().replace('\\', '/')
+
+            dolt.Dolt.clone(remote_url='file://' + url, new_dir=str(path_info))
+
+            print(f'url cloned.')
+            print('#' * 80, '\n')
+        else:
+            print("exiting")
+            raise e
+
+        db = dolt.Dolt(path_info)
+
     prev_head = db.head
     heads = obj.hash_info.value.split(".dolt")[0]
     new_head, _ = heads.split("-")
+
     if not db.status().is_clean:
         db.reset(tables=[], hard=True)
     if prev_head != new_head:
@@ -272,6 +306,7 @@ def _checkout_dolt(
         else:
             branch = branches[0]["name"]
             db.checkout(branch)
+
         return True
     else:
         return False
