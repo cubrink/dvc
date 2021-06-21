@@ -271,19 +271,22 @@ def _checkout_dolt(
             config = configparser.ConfigParser()
             localConf = Path('.dvc/config.local')
             dvcConf = Path('.dvc/config')
+            remoteUrl = None
 
             if localConf.is_file():
-                print('Reading from .dvc/config.local')
                 config.read(str(localConf))
-                url = config["""'remote "dolt_remote"'"""]['url']
-            elif dvcConf.is_file():
-                print('Reading from .dvc/config')
+                if """'remote "dolt_remote"'""" in config:
+                    remoteUrl = config["""'remote "dolt_remote"'"""].get('url', None)
+            if remoteUrl is None and dvcConf.is_file():
                 config.read(str(dvcConf))
-                url = config["""'remote "dolt_remote"'"""]['url']
-            else:
-                url = input('Path to the remote: ').strip().replace('\\', '/')
+                if """'remote "dolt_remote"'""" in config:
+                    remoteUrl = config["""'remote "dolt_remote"'"""].get('url', None)
+            if remoteUrl is None:
+                remoteUrl = input('Path to the remote: ').strip().replace('\\', '/')
+                if not Path(remoteUrl).is_dir():
+                    raise NotADirectoryError(f"{remoteUrl} is not a valid Dolt remote.")
 
-            dolt.Dolt.clone(remote_url='file://' + url, new_dir=str(path_info))
+            dolt.Dolt.clone(remote_url='file://' + remoteUrl, new_dir=str(path_info))
 
             print(f'url cloned.')
             print('#' * 80, '\n')
