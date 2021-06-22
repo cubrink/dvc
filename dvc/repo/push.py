@@ -47,20 +47,32 @@ def push(
         if odb is None:
             pushed += self.cloud.push(objs, jobs, remote=remote)
 
+    # if expanded_targets is not None:
+
     dolt_pushed = 0
-    if expanded_targets is not None:
-        for t in expanded_targets:
-            if os.path.exists(os.path.join(t, ".dolt")):
+    remote_conf = None
+    for t in expanded_targets:
+        if os.path.exists(os.path.join(t, ".dolt")):
+            if not remote_conf:
                 remotes = self.config.get("remote", None)
                 if not remotes:
                     break
                 remote_conf = remotes.get(remote, None)
                 if not remote_conf:
                     break
-                db = dolt.Dolt(t)
-                remote_url = remote_conf.get("url")
+            db = dolt.Dolt(t)
+            remote_url = remote_conf.get("url")
+
+            existing_remotes = db.remote()
+            found_remote = False
+            for r in existing_remotes:
+                if r.name == remote:
+                    found_remote = True
+                    break
+            if not found_remote:
                 db.remote(name=remote, url="file://" + remote_url, add=True)
-                db.push(remote=remote, set_upstream=True, refspec="master")
-                dolt_pushed += 1
+
+            db.push(remote=remote, set_upstream=True, refspec="master")
+            dolt_pushed += 1
 
     return pushed + dolt_pushed
