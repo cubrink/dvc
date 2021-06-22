@@ -56,6 +56,7 @@ def push(
                 remotes = self.config.get("remote", None)
                 if not remotes:
                     break
+
                 remote_conf = remotes.get(remote, None)
                 if not remote_conf:
                     break
@@ -68,6 +69,7 @@ def push(
                 if r.name == remote:
                     found_remote = True
                     break
+
             if not found_remote:
                 db.remote(name=remote, url="file://" + remote_url, add=True)
 
