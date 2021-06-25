@@ -268,7 +268,7 @@ def stage(odb, path_info, fs, name, upload=False, **kwargs):
         return obj
 
     if fs.isdolt(path_info):
-        obj = _get_dolt_obj(path_info, fs, name, odb, state, upload)
+        _, obj = _get_dolt_obj(path_info, fs, name, odb, state, upload)
     elif fs.isdir(path_info):
         obj = _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs)
     else:
