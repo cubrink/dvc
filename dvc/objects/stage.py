@@ -193,22 +193,6 @@ def _build_tree(path_info, fs, name, odb, state, upload, **kwargs):
 
     return tree
 
-def get_dolt_hash(path_info, fs, name, odb, state, **kwargs):
-    db = dolt.Dolt(path_info)
-    sql = (f"select @@{db.repo_name}_working as working")
-    res = db.sql(sql, result_format="csv")
-    working = res[0]["working"]
-    value = f"{db.head}-{working}.dolt"
-
-    hash_info = HashInfo(name, value)
-    dir_info = _collect_dir(path_info, fs, name, state, **kwargs)
-
-    hash_info.size = dir_info.size
-
-    hashFile = HashFile(path_info, fs, hash_info, name)
-
-    return hashFile
-
 def _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs):
     from .tree import Tree
 
@@ -284,7 +268,7 @@ def stage(odb, path_info, fs, name, upload=False, **kwargs):
         return obj
 
     if fs.isdolt(path_info):
-        obj = _get_dolt_obj(path_info, fs, name, odb, state, **kwargs)
+        obj = _get_dolt_obj(path_info, fs, name, odb, state, upload)
     elif fs.isdir(path_info):
         obj = _get_tree_obj(path_info, fs, name, odb, state, upload, **kwargs)
     else:
